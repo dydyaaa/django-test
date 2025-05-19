@@ -1,5 +1,6 @@
 from rest_framework import generics, status, viewsets
 from rest_framework.authtoken.models import Token
+from rest_framework.authtoken.views import ObtainAuthToken
 from rest_framework.response import Response
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import AllowAny, IsAuthenticatedOrReadOnly, IsAuthenticated
@@ -18,8 +19,32 @@ class RegisterView(generics.CreateAPIView):
     serializer_class = UserSerializer
     permission_classes = [AllowAny]
     
-    @swagger_auto_schema(security=[]) 
-    def create(self, request, *args, **kwargs):
+    @swagger_auto_schema(
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                'username': openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description='Имя пользователя (4-150 символов, только буквы, цифры и @/./+/-/_)',
+                    maxLength=150,
+                    minLength=4
+                ),
+                'email': openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description='Электронная почта',
+                    format='email'
+                ),
+                'password': openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description='Пароль (не менее 8 символов)',
+                    minLength=6
+                ),
+            },
+            required=['username', 'email', 'password'],
+        ),
+        security=[]
+    )
+    def post(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
@@ -34,6 +59,14 @@ class RegisterView(generics.CreateAPIView):
             'token': token.key
         }, status=status.HTTP_201_CREATED)
         
+
+class CustomLoginView(ObtainAuthToken):
+    permission_classes = [AllowAny]
+    
+    @swagger_auto_schema(security=[])
+    def post(self, request, *args, **kwargs):
+        return super().post(request, *args, **kwargs)
+    
 
 class AdViewSet(viewsets.ModelViewSet):
     queryset = Ad.objects.all().order_by('-created_at')
@@ -55,7 +88,8 @@ class AdViewSet(viewsets.ModelViewSet):
             openapi.Parameter(
                 'page', openapi.IN_QUERY, description="Номер страницы", type=openapi.TYPE_INTEGER
             ),
-        ]
+        ],
+        security=[]
     )
     def list(self, request, *args, **kwargs):
         return super().list(request, *args, **kwargs)
@@ -105,9 +139,57 @@ class ExchangeProposalViewSet(viewsets.ModelViewSet):
             )
         return ExchangeProposal.objects.none()
 
+    @swagger_auto_schema(
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                'ad_sender_id': openapi.Schema(
+                    type=openapi.TYPE_INTEGER, 
+                    description='ID объявления отправителя'
+                ),
+                'ad_receiver_id': openapi.Schema(
+                    type=openapi.TYPE_INTEGER, 
+                    description='ID объявления получателя'
+                ),
+                'comment': openapi.Schema(
+                    type=openapi.TYPE_STRING, 
+                    description='Комментарий к предложению',
+                    nullable=True
+                ),
+            },
+            required=['ad_sender_id', 'ad_receiver_id'],
+            example={
+                'ad_sender_id': 1,
+                'ad_receiver_id': 2,
+                'comment': 'Хочу обменять книгу на ноутбук'
+            }
+        )
+    )
+    def create(self, request, *args, **kwargs):
+        return super().create(request, *args, **kwargs)
+
     def perform_create(self, serializer):
         serializer.save()
         
+    @swagger_auto_schema(
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                'status': openapi.Schema(
+                    type=openapi.TYPE_STRING, 
+                    description='Статус предложения',
+                    enum=['accepted', 'rejected']
+                ),
+            },
+            required=['status'],
+            example={
+                'status': 'accepted'
+            }
+        )
+    )
+    def partial_update(self, request, *args, **kwargs):
+        return super().partial_update(request, *args, **kwargs)
+
     def perform_update(self, serializer):
         if 'status' not in self.request.data:
             raise PermissionDenied("Можно обновлять только поле 'status'.")
